@@ -1,0 +1,12 @@
+name: IP-based determination of Country
+type: module
+description: 'Determines country the user is located in, based on IP address'
+package: Location
+# core: 8.x
+configure: ip2country.settings
+
+# Information added by Drupal.org packaging script on 2015-11-21
+version: '8.x-1.8'
+core: '8.x'
+project: 'ip2country'
+datestamp: 1448078342

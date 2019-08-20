@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * @file
+ * Password Reset Landing Page module.
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Component\Utility\Crypt;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+
+/**
+ * Default value of the 'prlp_destination' config varible.
+ */
+define('PRLP_DESTINATION_DEFAULT', 'user/%uid/edit');
+
+function prlp_form_user_pass_reset_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $config = \Drupal::config('prlp.settings');
+  $form['pass'] = array(
+    '#type' => 'password_confirm',
+    '#title' => t('Set New Password'),
+    '#description' => t('Please set a new password so that you can login next time.'),
+    '#weight' => -1,
+    '#required' => $config->get('password_required'),
+  );
+  $form['#submit'][] = 'prlp_form_user_pass_reset_submit';
+}
+
+function prlp_form_user_pass_reset_submit(&$form, FormStateInterface $form_state) {
+  $args = $form_state->getBuildInfo()['args'];
+  list($user, $expiration, $timestamp, $hash) = $args;
+  // save the new password ONLY if the user and the hash are valid
+  if ($user !== NULL && $user->isActive() && Crypt::hashEquals($hash, user_pass_rehash($user, $timestamp))) {
+    $user->setPassword($form_state->getValue('pass'));
+    $user->save();
+    drupal_set_message(t('Your new password has been saved.'));
+    // set this request attribute so that we don't fail on hash check
+    // in PrlpController::prlpResetPassLogin()
+    Drupal::request()->getSession()->set('prlp_skip_hash_check', TRUE);
+  }
+}

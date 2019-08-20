@@ -1,0 +1,189 @@
+<?php
+
+/**
+ * @file
+ * Install, update, and uninstall functions for the ip2country module.
+ */
+
+
+/**
+ * Implements hook_schema().
+ */
+function ip2country_schema() {
+  $schema['ip2country'] = array(
+    'description' => 'Association between IP range and Country',
+    'fields' => array(
+      'ip2country_id' => array(
+        'description' => 'Row number (why is this needed?)',
+        'type'        => 'serial',
+        'unsigned'    => TRUE,
+        'not null'    => TRUE,
+      ),
+      'country' => array(
+        'description' => 'ISO 3166 2-character country code',
+        'type'        => 'char',
+        'length'      => 3,
+        'not null'    => TRUE,
+      ),
+      'registry' => array(
+        'description' => 'Regional Internet Registry',
+        'type'        => 'char',
+        'length'      => 10,
+        'not null'    => TRUE,
+      ),
+      'ip_range_first' => array(
+        'description' => 'Lowest IP address in range',
+        'type'        => 'int',
+        'size'        => 'big',
+        'not null'    => TRUE,
+      ),
+      'ip_range_last' => array(
+        'description' => 'Highest IP address in range',
+        'type'        => 'int',
+        'size'        => 'big',
+        'not null'    => TRUE,
+      ),
+      'ip_range_length' => array(
+        'description' => 'Size of IP address block',
+        'type'        => 'int',
+        'not null'    => TRUE,
+      ),
+    ),
+    'indexes' => array(
+      'country_registry' => array('country', 'registry'),
+    ),
+    'primary key' => array('ip2country_id'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ *
+ * Populates database tables needed by this module.
+ *
+ * By default, this module WILL populate the database. But because it
+ * is so time-consuming, an option is available to not populate the
+ * database automatically on install, intended for use by SimpleTest.
+ */
+function ip2country_install() {
+  //
+  // Set the variable to FALSE before installing this module to
+  // leave the database table empty on install.
+  //
+  $populate = \Drupal::state()->get('ip2country_populate_database_on_install');
+
+  if (!isset($populate) || $populate) {
+    \Drupal::moduleHandler()->loadInclude('ip2country', 'inc', 'ip2country');
+    $ip2country_config = \Drupal::config('ip2country.settings');
+    $registry = $ip2country_config->get('rir');
+    ip2country_update_database($registry);
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Removes all tables and variables inserted into the
+ * database by this module.
+ */
+function ip2country_uninstall() {
+  // Ensure temporary table is removed.
+  db_drop_table('ip2country_temp');
+
+  // Remove state variables.
+  \Drupal::state()->delete('ip2country_populate_database_on_install');
+  \Drupal::state()->delete('ip2country_last_update');
+  \Drupal::state()->delete('ip2country_last_update_rir');
+
+  // Remove date formats.
+  $formats = entity_load_multiple('date_format', ['ip2country_date', 'ip2country_time']);
+  if (!empty($formats)) {
+    $format_names = array();
+    foreach ($formats as $format) {
+      $format_names[] = $format->label();
+    }
+    drupal_set_message(\Drupal::translation()->formatPlural(count($format_names),
+      'The date format %format has not been deleted. If you need to delete it, <a href=":url">please do so manually</a>.',
+      'The date formats %formats have not been deleted. If you need to delete them, <a href=":url">please do so manually</a>.',
+      array(
+        '%format' => $format_names[0],
+        '%formats' => implode(', ', $format_names),
+        ':url' => \Drupal\Core\Url::fromRoute('entity.date_format.collection')->toString()
+      )
+    ), 'warning');
+  }
+}
+
+/**
+ * @addtogroup updates-7.x-to-8.x
+ * @{
+ */
+
+/**
+ * Converts ip2country system variables to config.
+ *
+ * @ingroup config_upgrade
+ */
+function ip2country_update_8000() {
+  // Obsolete variables - we no longer store these, but a prior version
+  // did. Try to remove just in case they're still hanging around.
+  variable_del('ip2country_lookup');
+  variable_del('ip2country_lookup_button');
+  variable_del('ip2country_update_database');
+
+  // Update most system variables to config settings.
+  update_variables_to_config(
+    'ip2country.settings',
+    array(
+      'ip2country_populate_database_on_install' => 'populate_database_on_install',
+      'ip2country_debug' => 'debug',
+      'ip2country_test_type' => 'test_type',
+      'ip2country_test_ip_address' => 'test_ip_address',
+      'ip2country_test_country' => 'test_country',
+      'ip2country_rir' => 'rir',
+      'ip2country_md5_checksum' => 'md5_checksum',
+      'ip2country_update_interval' => 'update_interval',
+      'ip2country_watchdog' => 'watchdog',
+    )
+  );
+
+  // Update remaining system variables to state variables.
+  \Drupal::state()->set('ip2country_last_update',
+                        variable_get('ip2country_populate_database_on_install', TRUE));
+  variable_del('ip2country_populate_database_on_install');
+
+  \Drupal::state()->set('ip2country_last_update',
+                        variable_get('ip2country_last_update', 0));
+  variable_del('ip2country_last_update');
+
+  \Drupal::state()->set('ip2country_last_update_rir',
+                        variable_get('ip2country_last_update_rir', 'unknown'));
+  variable_del('ip2country_last_update_rir');
+}
+
+/**
+ * Migrate {users}.data into {users_data}.
+ */
+function ip2country_update_8001() {
+  $query = db_select('_d7_users_data', 'ud');
+  $query->condition('name', 'country_iso_code_2');
+  $query->addField('ud', 'uid');
+  $query->addExpression("'ip2country'", 'module');
+  $query->addExpression("'country_iso_code_2'", 'name');
+  $query->addField('ud', 'value', 'value');
+  $query->addExpression(1, 'serialized');
+
+  db_insert('users_data')
+    ->from($query)
+    ->execute();
+  db_delete('_d7_users_data')
+    ->condition('name', 'country_iso_code_2')
+    ->execute();
+}
+
+/**
+ * @} End of "defgroup updates-7.x-to-8.x".
+ * The next series of updates should start at 9000.
+ */

@@ -1,0 +1,12 @@
+name: ip2country hook tests
+type: module
+description: 'Support module for ip2country tests'
+package: Location
+# core: 8.x
+hidden: TRUE
+
+# Information added by Drupal.org packaging script on 2015-11-21
+version: '8.x-1.8'
+core: '8.x'
+project: 'ip2country'
+datestamp: 1448078342
